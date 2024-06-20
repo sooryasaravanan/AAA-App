@@ -1,0 +1,59 @@
+/* CurrentKeys.css */
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+  }
+  
+  .sign-out-button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    margin-bottom: 20px;
+  }
+  
+  .sign-out-button:hover {
+    background-color: #45a049;
+  }
+  
+  .sign-in-message {
+    font-size: 18px;
+    color: #666;
+    margin-bottom: 20px;
+  }
+  
+  .keys-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .keys-table th, .keys-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+  }
+  
+  .keys-table th {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    background-color: #4CAF50;
+    color: white;
+  }
+  
+  .keys-table tr:nth-child(even) {
+    background-color: #f2f2f2;
+  }
+  
+  .keys-table tr:hover {
+    background-color: #ddd;
+  }
+  
+  .keys-table td {
+    word-wrap: break-word;
+  }
+  

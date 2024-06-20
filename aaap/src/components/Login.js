@@ -1,29 +1,38 @@
 import React from 'react';
-import { auth, firestore } from '../firebase/config';
+import { useNavigate } from 'react-router-dom';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth } from '../firebase/config';
+import './Login.css'; // Import the CSS file for styling
 
 const Login = () => {
-  const signInWithGoogle = async () => {
+  const navigate = useNavigate();
+
+  const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
     try {
       const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential.accessToken;
+      localStorage.setItem('accessToken', token);
       const user = result.user;
-      if (user) {
-        const userRef = doc(collection(firestore, 'users'), user.email);
-        await setDoc(userRef, {
-          email: user.email,
-          lastLogin: serverTimestamp(),
-        }, { merge: true });
-      }
+      localStorage.setItem('userName', user.displayName);
+      navigate('/home');
     } catch (error) {
-      console.error("Error signing in with Google: ", error);
+      console.error('Error signing in with Google', error);
     }
   };
 
   return (
-    <div>
-      <button onClick={signInWithGoogle}>Sign in with Google</button>
+    <div className="login-container">
+      <div className="login-card">
+        <h2>Welcome to My Secure Email App</h2>
+        <p>Please sign in with Google to continue</p>
+        <button className="google-sign-in-button" onClick={handleGoogleSignIn}>
+          <span className="google-logo"></span>
+          Sign in with Google
+        </button>
+      </div>
     </div>
   );
 };
