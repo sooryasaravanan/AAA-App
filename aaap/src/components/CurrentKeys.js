@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { initDB, getKey, setKey, getAllKeys, clearDB } from './db'; // Import clearDB function
-import './CurrentKeys.css'; // Import the CSS file
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { initDB, getKey, setKey, getAllKeys, clearDB } from './db';
+import { db as firestoreDB } from '../firebase/config';
+import './CurrentKeys.css';
 
 const CurrentKeys = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [keys, setKeys] = useState([]);
   const [accessToken, setAccessToken] = useState(null);
   const [db, setDb] = useState(null);
+  const [lastFetchTime, setLastFetchTime] = useState(localStorage.getItem('lastFetchTime') || new Date().toISOString());
 
   useEffect(() => {
     const initializeDB = async () => {
       const dbInstance = await initDB();
       setDb(dbInstance);
-      
-      // Load keys from IndexedDB
       const allKeys = await getAllKeys(dbInstance);
       setKeys(allKeys);
     };
@@ -34,28 +35,35 @@ const CurrentKeys = () => {
           'Authorization': `Bearer ${accessToken}`,
         },
         params: {
-          maxResults: 1,
           q: query,
         },
       });
 
       const messages = response.data.messages;
       if (messages && messages.length > 0) {
-        const messageId = messages[0].id;
-        const messageResponse = await axios.get(`https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}`, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        });
-
-        return messageResponse.data;
-      } else {
-        return null;
+        for (let i = 0; i < messages.length; i++) {
+          const messageId = messages[i].id;
+          const messageResponse = await axios.get(`https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}`, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
+          await processMessage(messageResponse.data);
+        }
       }
     } catch (error) {
       console.error('Error fetching emails:', error);
-      return null;
     }
+  };
+
+  const getUsernameByEmail = async (email) => {
+    const q = query(collection(firestoreDB, 'users'), where('gmail', '==', email));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      const userDoc = querySnapshot.docs[0];
+      return userDoc.data().username;
+    }
+    return email; // Use email if username is not found
   };
 
   const processMessage = async (message) => {
@@ -65,38 +73,55 @@ const CurrentKeys = () => {
     const dateHeader = headers.find(header => header.name === 'Date');
 
     if (senderHeader && receiverHeader && dateHeader) {
-      const sender = senderHeader.value;
-      const receiver = receiverHeader.value;
+      const senderEmail = senderHeader.value.match(/<([^>]+)>/)[1];
+      const receiverEmail = receiverHeader.value.match(/<([^>]+)>/)[1];
       const time = new Date(dateHeader.value).toISOString();
 
-      const uniquePartner = `${sender} -> ${receiver}`;
-      const newKey = `email(${sender}+${receiver}+${time})`;
+      const senderUsername = await getUsernameByEmail(senderEmail);
+      const receiverUsername = await getUsernameByEmail(receiverEmail);
 
-      const existingKey = await getKey(db, uniquePartner);
+      const uniquePartner1 = `${senderUsername} -> ${receiverUsername}`;
+      const uniquePartner2 = `${receiverUsername} -> ${senderUsername}`;
+      const newKey = `email(${senderEmail}+${receiverEmail}+${time})`;
 
-      if (existingKey) {
-        if (!existingKey.keys.includes(newKey)) {
-          existingKey.keys.push(newKey);
-          await setKey(db, existingKey);
+      const existingKey1 = await getKey(db, uniquePartner1);
+      const existingKey2 = await getKey(db, uniquePartner2);
+
+      if (existingKey1) {
+        if (!existingKey1.keys.includes(newKey)) {
+          existingKey1.keys.push(newKey);
+          await setKey(db, existingKey1);
+        }
+      } else if (existingKey2) {
+        if (!existingKey2.keys.includes(newKey)) {
+          existingKey2.keys.push(newKey);
+          await setKey(db, existingKey2);
         }
       } else {
         const newKeyEntry = {
-          partner: uniquePartner,
+          partner: uniquePartner1,
           keys: [newKey],
         };
         await setKey(db, newKeyEntry);
       }
 
       setKeys(prevKeys => {
-        const keyIndex = prevKeys.findIndex(key => key.partner === uniquePartner);
-        if (keyIndex > -1) {
+        const keyIndex1 = prevKeys.findIndex(key => key.partner === uniquePartner1);
+        const keyIndex2 = prevKeys.findIndex(key => key.partner === uniquePartner2);
+        if (keyIndex1 > -1) {
           const updatedKeys = [...prevKeys];
-          if (!updatedKeys[keyIndex].keys.includes(newKey)) {
-            updatedKeys[keyIndex].keys.push(newKey);
+          if (!updatedKeys[keyIndex1].keys.includes(newKey)) {
+            updatedKeys[keyIndex1].keys.push(newKey);
+          }
+          return updatedKeys;
+        } else if (keyIndex2 > -1) {
+          const updatedKeys = [...prevKeys];
+          if (!updatedKeys[keyIndex2].keys.includes(newKey)) {
+            updatedKeys[keyIndex2].keys.push(newKey);
           }
           return updatedKeys;
         } else {
-          return [...prevKeys, { partner: uniquePartner, keys: [newKey] }];
+          return [...prevKeys, { partner: uniquePartner1, keys: [newKey] }];
         }
       });
     } else {
@@ -106,11 +131,12 @@ const CurrentKeys = () => {
 
   useEffect(() => {
     const fetchLatestEmails = async () => {
-      const receivedEmail = await fetchEmails('is:unread');
-      if (receivedEmail) processMessage(receivedEmail);
-
-      const sentEmail = await fetchEmails('is:sent');
-      if (sentEmail) processMessage(sentEmail);
+      const timestampQuery = `after:${Math.floor(new Date(lastFetchTime).getTime() / 1000)}`;
+      await fetchEmails(timestampQuery);
+      const currentTime = new Date().toISOString();
+      setLastFetchTime(currentTime);
+      localStorage.setItem('lastFetchTime', currentTime);
+      console.log(`New timestamp set: ${currentTime}`); // Console log the new timestamp
     };
 
     if (isSignedIn && accessToken && db) {
@@ -125,6 +151,7 @@ const CurrentKeys = () => {
     setAccessToken(null);
     setKeys([]);
     localStorage.removeItem('accessToken');
+    localStorage.removeItem('lastFetchTime');
     window.location.hash = ''; // Clear the access token from the URL
   };
 
@@ -132,16 +159,18 @@ const CurrentKeys = () => {
     if (db) {
       await clearDB(db);
       setKeys([]);
+      localStorage.removeItem('lastFetchTime');
+      setLastFetchTime(new Date().toISOString());
     }
   };
 
   const displayKeys = () => {
     return keys.map(({ partner, keys }) => {
-      const [sender, receiver] = partner.split(' -> ');
+      const [username1, username2] = partner.split(' -> ');
       return (
         <tr key={partner}>
-          <td>{sender}</td>
-          <td>{receiver}</td>
+          <td>{username1}</td>
+          <td>{username2}</td>
           <td>{keys.join(' + ')}</td>
         </tr>
       );
@@ -161,8 +190,8 @@ const CurrentKeys = () => {
       <table className="keys-table">
         <thead>
           <tr>
-            <th>Sender</th>
-            <th>Receiver</th>
+            <th>Username 1</th>
+            <th>Username 2</th>
             <th>Key</th>
           </tr>
         </thead>

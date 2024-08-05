@@ -1,11 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { auth, db } from '../firebase/config';
 import './Login.css'; // Import the CSS file for styling
 
 const Login = () => {
   const navigate = useNavigate();
+
+  const checkUserExists = async (email) => {
+    const q = query(collection(db, 'users'), where('gmail', '==', email));
+    const querySnapshot = await getDocs(q);
+    return !querySnapshot.empty;
+  };
 
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
@@ -17,7 +24,15 @@ const Login = () => {
       localStorage.setItem('accessToken', token);
       const user = result.user;
       localStorage.setItem('userName', user.displayName);
-      navigate('/home');
+
+      const userExists = await checkUserExists(user.email);
+      if (userExists) {
+        navigate('/home');
+      } else {
+        navigate('/register', {
+          state: { gmail: user.email },
+        });
+      }
     } catch (error) {
       console.error('Error signing in with Google', error);
     }
